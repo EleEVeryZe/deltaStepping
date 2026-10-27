@@ -1,0 +1,3 @@
+[submodule "CPU/gapbsz"]
+	path = CPU/gapbsz
+	url = https://github.com/sbeamer/gapbs.git
