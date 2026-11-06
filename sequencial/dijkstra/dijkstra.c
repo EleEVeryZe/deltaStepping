@@ -15,53 +15,71 @@ typedef struct {
     int *weights;   // Pesos das arestas (tamanho: num_arestas)
 } CSRGraph;
 
-// Função para ler o arquivo .mtx e converter para CSR
-CSRGraph* ler_mtx_para_csr(const char *filename) {
+CSRGraph* ler_emaileuall_para_csr(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
-        perror("Erro ao abrir o arquivo .mtx");
+        perror("Erro ao abrir o arquivo email-EuAll");
         exit(EXIT_FAILURE);
     }
 
     char linha[256];
-    // Ignorar comentários do cabeçalho Matrix Market
+    int num_vertices = 0;
+    int num_arestas = 0;
+
+    // Ler o cabeçalho ignorando as linhas de comentário com '#'
     while (fgets(linha, sizeof(linha), file)) {
-        if (linha[0] != '%') break;
+        if (linha[0] == '#') {
+            // Opcional: podemos extrair o número de vértices e arestas do comentário se quisermos
+            if (strstr(linha, "Nodes:") != NULL) {
+                sscanf(strstr(linha, "Nodes:"), "Nodes: %d Edges: %d", &num_vertices, &num_arestas);
+            }
+            continue;
+        }
+        break; // A primeira linha útil após os comentários é a primeira aresta (0 1)
     }
 
-    // Ler dimensões do grafo: M (linhas), N (colunas), NNZ (número de arestas)
-    int rows, cols, nnz;
-    if (sscanf(linha, "%d %d %d", &rows, &cols, &nnz) != 3) {
-        fprintf(stderr, "Erro ao ler o cabeçalho do .mtx\n");
-        fclose(file);
-        exit(EXIT_FAILURE);
-    }
-
-    int num_vertices = rows;
-    
-    // Estrutura temporária para armazenar as arestas
+    // Como já lemos a primeira linha de aresta (u e v), precisamos tratá-la antes de continuar o loop
     typedef struct { int u, v, w; } ArestaTemp;
-    ArestaTemp *arestas = malloc(2 * nnz * sizeof(ArestaTemp));
+    
+    // Se o num_arestas foi lido do cabeçalho, usamos ele. Caso contrário, usamos um valor seguro.
+    if (num_arestas == 0) num_arestas = 500000; // Alocação de segurança
+    
+    ArestaTemp *arestas = malloc(num_arestas * sizeof(ArestaTemp));
     int total_arestas = 0;
 
-    for (int i = 0; i < nnz; i++) {
-        int u, v;
-        double w;
-        fscanf(file, "%d %d %lf", &u, &v, &w);
+    int u, v;
+    // Processar a primeira aresta já lida pelo while anterior
+    // (Nota: se a linha lida continha "0 1", usamos sscanf nela)
+    if (sscanf(linha, "%d %d", &u, &v) == 2) {
+        int peso = (rand() % 10) + 1; // Atribuindo peso positivo para simular latência/distância
+        arestas[total_arestas++] = (ArestaTemp){u, v, peso};
+    }
+
+    // Ler o restante das arestas do arquivo
+    while (fscanf(file, "%d %d", &u, &v) == 2) {
+        int peso = (rand() % 10) + 1;
         
-        // Ajuste para indexação baseada em 0 (o .mtx começa em 1)
-        u--; 
-        v--; 
-        int peso = (int)w;
+        if (total_arestas >= num_arestas) {
+            num_arestas *= 2;
+            arestas = realloc(arestas, num_arestas * sizeof(ArestaTemp));
+        }
 
         arestas[total_arestas++] = (ArestaTemp){u, v, peso};
-        
-        // Descomente se o grafo for não-direcionado:
-        //if (u != v) arestas[total_arestas++] = (ArestaTemp){v, u, peso};
     }
     fclose(file);
 
-    // Alocar a estrutura CSR
+    // Se o número de vértices não foi capturado do comentário, determinamos pelo maior ID encontrado
+    if (num_vertices == 0) {
+        for (int i = 0; i < total_arestas; i++) {
+            if (arestas[i].u > num_vertices) num_vertices = arestas[i].u;
+            if (arestas[i].v > num_vertices) num_vertices = arestas[i].v;
+        }
+        num_vertices++; // IDs começam em 0
+    }
+
+    printf("Grafo carregado! Vertices: %d, Arestas: %d\n", num_vertices, total_arestas);
+
+    // Construção da estrutura CSR padrão
     CSRGraph *graph = malloc(sizeof(CSRGraph));
     graph->num_vertices = num_vertices;
     graph->num_arestas = total_arestas;
@@ -69,23 +87,20 @@ CSRGraph* ler_mtx_para_csr(const char *filename) {
     graph->col_idx = malloc(total_arestas * sizeof(int));
     graph->weights = malloc(total_arestas * sizeof(int));
 
-    // Contar o grau de cada vértice para preencher o row_ptr
     for (int i = 0; i < total_arestas; i++) {
         graph->row_ptr[arestas[i].u + 1]++;
     }
 
-    // Acumular para formar os offsets (prefix sum)
     for (int i = 0; i < num_vertices; i++) {
         graph->row_ptr[i + 1] += graph->row_ptr[i];
     }
 
-    // Preencher col_idx e weights
     int *current_pos = malloc(num_vertices * sizeof(int));
     memcpy(current_pos, graph->row_ptr, num_vertices * sizeof(int));
 
     for (int i = 0; i < total_arestas; i++) {
-        int u = arestas[i].u;
-        int dest = current_pos[u]++;
+        int orig = arestas[i].u;
+        int dest = current_pos[orig]++;
         graph->col_idx[dest] = arestas[i].v;
         graph->weights[dest] = arestas[i].w;
     }
@@ -155,7 +170,7 @@ int main(int argc, char *argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &inicio_total);
 
     printf("Carregando o arquivo %s e convertendo para CSR...\n", argv[1]);
-    CSRGraph *graph = ler_mtx_para_csr(argv[1]);
+    CSRGraph *graph = ler_emaileuall_para_csr(argv[1]);
     printf("Grafo carregado! Vértices: %d, Arestas: %d\n", graph->num_vertices, graph->num_arestas);
 
     // Medindo exclusivamente o tempo de resposta do algoritmo
