@@ -1,1 +1,0 @@
-* Cache Miss Baseline: Use perf on Linux (perf stat ./your_program) to measure the drop in L1-dcache-loads and LLC-misses moving from std::vector to flat CSR.

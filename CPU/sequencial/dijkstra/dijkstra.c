@@ -166,7 +166,6 @@ int main(int argc, char *argv[]) {
     struct timespec inicio_total, fim_total;
     struct timespec inicio_alg, fim_alg;
 
-    // Medindo o tempo total (incluindo leitura e conversão para CSR)
     clock_gettime(CLOCK_MONOTONIC, &inicio_total);
 
     printf("Carregando o arquivo %s e convertendo para CSR...\n", argv[1]);
