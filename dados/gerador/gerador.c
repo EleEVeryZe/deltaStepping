@@ -1,41 +1,49 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void gerar_grafo_sintetico(int num_vertices, const char* filename) {
+/**
+ * GENERATES IN THE DIMACS FORMAT
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+void gerar_grafo_denso(int num_vertices, int grau_medio, const char* filename) {
     FILE *f = fopen(filename, "w");
     if (!f) return;
 
-    // Número de conexões por vértice não pode ser maior que (num_vertices - 1)
-    int grau_saida = (num_vertices - 1 < 4) ? (num_vertices - 1) : 4;
-    int num_arestas = num_vertices * grau_saida;
+    // Garante que o grau não ultrapasse o limite de vértices
+    if (grau_medio >= num_vertices) grau_medio = num_vertices - 1;
+    
+    long long num_arestas = (long long)num_vertices * grau_medio;
+    fprintf(f, "%d %lld\n", num_vertices, num_arestas);
 
-    fprintf(f, "p sp %d %d\n", num_vertices, num_arestas);
-
-    srand(1337);
+    srand(42);
     for (int i = 0; i < num_vertices; i++) {
-        // Usamos um array simples para controlar vizinhos já conectados neste vértice
         int *visitados = calloc(num_vertices, sizeof(int));
-        visitados[i] = 1; // Não conecta em si mesmo (evita self-loop)
+        visitados[i] = 1; // Evita self-loop
 
-        for (int k = 0; k < grau_saida; k++) {
+        for (int k = 0; k < grau_medio; k++) {
             int destino;
             do {
-                // Sorteia um destino aleatório de forma mais orgânica
                 destino = rand() % num_vertices;
-            } while (visitados[destino]); // Garante que não há arestas paralelas
+            } while (visitados[destino]);
 
             visitados[destino] = 1;
-            int peso = (rand() % 100) + 1; // Pesos entre 1 e 100
+            
+            // Gera pesos decimais realistas entre 0.001 e 10.0
+            double peso = ((double)rand() / RAND_MAX) * 9.999 + 0.001;
 
-            fprintf(f, "a %d %d %d\n", i + 1, destino + 1, peso);
+            fprintf(f, "%d %d %.6f\n", i, destino, peso);
         }
         free(visitados);
     }
     fclose(f);
-    printf("Grafo gerado sem arestas paralelas em %s\n", filename);
+    printf("Grafo denso gerado com sucesso: %d vertices, %lld arestas.\n", num_vertices, num_arestas);
 }
-int main(int argc, char *argv[]) {
-    printf("Gerando grafo de \nnumero de vertices: %d\nNome do Arquivo: %s", atoi(argv[1]), argv[2]);
-    gerar_grafo_sintetico(atoi(argv[1]), argv[2]);
-    printf("\nFIM");
+
+int main() {
+    // Exemplo: 50 mil vértices com grau médio de 30 arestas por nó
+    gerar_grafo_denso(50000, 30, "../computado/v50ke30m.txt");
+    return 0;
 }

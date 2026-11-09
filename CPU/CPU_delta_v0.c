@@ -1,46 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
+#include <float.h>
 #include <time.h>
 
-#define INF INT_MAX
-#define MAX_NODES 100
+#define INF DBL_MAX
+#define MAX_NODES 70000  
 #define MAX_BUCKETS 1000
 
-// Estrutura para uma Aresta
 typedef struct {
     int destino;
-    int peso;
+    double peso;
 } Aresta;
 
-// Estrutura para a Lista de Adjacências de um Vértice
 typedef struct {
     Aresta *arestas;
     int num_arestas;
     int capacidade;
 } Vertice;
 
-// Estrutura do Grafo Completo
 typedef struct {
     int num_vertices;
+    int num_arestas;
     Vertice *vertices;
 } GrafoLista;
 
-// Nós dos Baldes (Buckets)
 typedef struct BucketNode {
     int vertex;
     struct BucketNode *next;
 } BucketNode;
 
 BucketNode *buckets[MAX_BUCKETS];
-int tent[MAX_NODES];
+double tent[MAX_NODES];
 int in_bucket[MAX_NODES];
 
-// Funções de Gerenciamento do Grafo
-GrafoLista *criar_grafo(int num_vertices) {
+GrafoLista *criar_grafo(int num_vertices, int num_arestas) {
     GrafoLista *g = malloc(sizeof(GrafoLista));
     g->num_vertices = num_vertices;
+    g->num_arestas = num_arestas;
     g->vertices = malloc(num_vertices * sizeof(Vertice));
     for (int i = 0; i < num_vertices; i++) {
         g->vertices[i].num_arestas = 0;
@@ -50,7 +47,7 @@ GrafoLista *criar_grafo(int num_vertices) {
     return g;
 }
 
-void adicionar_aresta(GrafoLista *g, int origem, int destino, int peso) {
+void adicionar_aresta(GrafoLista *g, int origem, int destino, double peso) {
     Vertice *v = &g->vertices[origem];
     if (v->num_arestas >= v->capacidade) {
         v->capacidade *= 2;
@@ -60,6 +57,7 @@ void adicionar_aresta(GrafoLista *g, int origem, int destino, int peso) {
 }
 
 void liberar_grafo(GrafoLista *g) {
+    if (!g) return;
     for (int i = 0; i < g->num_vertices; i++) {
         free(g->vertices[i].arestas);
     }
@@ -67,9 +65,8 @@ void liberar_grafo(GrafoLista *g) {
     free(g);
 }
 
-// Funções dos Baldes
-void bucket_insere(int v, int dist, int delta) {
-    int b_idx = dist / delta;
+void bucket_insere(int v, double dist, double delta) {
+    int b_idx = (int)(dist / delta);
     if (b_idx >= MAX_BUCKETS) b_idx = MAX_BUCKETS - 1;
 
     BucketNode *new_node = malloc(sizeof(BucketNode));
@@ -99,8 +96,8 @@ void bucket_remove(int v, int b_idx) {
     in_bucket[v] = -1;
 }
 
-// Procedure relax(w, x) (* Insert or move w in B if x < tent(w) *)
-void relax(int w, int x, int delta) {
+// Procedure relax(w, x)
+void relax(int w, double x, double delta) {
     if (x < tent[w]) {
         if (in_bucket[w] != -1) {
             bucket_remove(w, in_bucket[w]);
@@ -110,30 +107,27 @@ void relax(int w, int x, int delta) {
     }
 }
 
-// Parser DIMACS
-GrafoLista *ler_dimacs_para_lista(const char *filename) {
+GrafoLista *ler_grafo_decimal(const char *filename) {
     FILE *file = fopen(filename, "r");
     if (!file) {
-        perror("Erro ao abrir arquivo DIMACS");
+        perror("Erro ao abrir o arquivo do grafo");
         exit(EXIT_FAILURE);
     }
 
-    char linha[256];
     int num_vertices = 0, num_arestas = 0;
-
-    while (fgets(linha, sizeof(linha), file)) {
-        if (linha[0] == 'c') continue;
-        if (linha[0] == 'p') {
-            sscanf(linha, "p sp %d %d", &num_vertices, &num_arestas);
-            break;
-        }
+    
+    if (fscanf(file, "%d %d", &num_vertices, &num_arestas) != 2) {
+        fprintf(stderr, "Erro ao ler o cabecalho do grafo.\n");
+        fclose(file);
+        exit(EXIT_FAILURE);
     }
 
-    GrafoLista *g = criar_grafo(num_vertices);
+    GrafoLista *g = criar_grafo(num_vertices, num_arestas);
 
-    int u, v, w;
-    while (fscanf(file, "a %d %d %d", &u, &v, &w) == 3) {
-        adicionar_aresta(g, u - 1, v - 1, w);
+    int u, v;
+    double peso;
+    while (fscanf(file, "%d %d %lf", &u, &v, &peso) == 3) {
+        adicionar_aresta(g, u, v, peso);
     }
     fclose(file);
 
@@ -142,36 +136,38 @@ GrafoLista *ler_dimacs_para_lista(const char *filename) {
 
 int main(int argc, char *argv[]) {
     struct timespec inicio_total, fim_total;
+    struct timespec inicio_leitura, fim_leitura;
+    struct timespec inicio_algoritmo, fim_algoritmo;
+
     clock_gettime(CLOCK_MONOTONIC, &inicio_total);
 
     if (argc < 2) {
-        printf("Uso: %s <arquivo.gr> [delta]\n", argv[0]);
+        printf("Uso: %s <arquivo_grafo> [delta]\n", argv[0]);
         return 1;
     }
 
-    int delta = (argc >= 3) ? atoi(argv[2]) : 15; // Delta padrão razoável
+    double delta = (argc >= 3) ? atof(argv[2]) : 0.005;
 
-    GrafoLista *g = ler_dimacs_para_lista(argv[1]);
-    printf("Grafo carregado via Lista de Adjacencias! Vertices: %d\n", g->num_vertices);
+    clock_gettime(CLOCK_MONOTONIC, &inicio_leitura);
+    GrafoLista *g = ler_grafo_decimal(argv[1]);
+    clock_gettime(CLOCK_MONOTONIC, &fim_leitura);
 
-    // foreach v in V do tent(v) := infinity
+    printf("Grafo carregado! Vertices: %d, Arestas: %d\n", g->num_vertices, g->num_arestas);
+    clock_gettime(CLOCK_MONOTONIC, &inicio_algoritmo);
+
     for (int i = 0; i < g->num_vertices; i++) {
         tent[i] = INF;
         in_bucket[i] = -1;
     }
     for (int i = 0; i < MAX_BUCKETS; i++) buckets[i] = NULL;
 
-    // relax(s, 0) (* Insert source node with distance 0 *)
-    relax(0, 0, delta);
+    relax(0, 0.0, delta);
 
-    // Estrutura auxiliar para o conjunto R (Remember deleted nodes)
     int *R = malloc(g->num_vertices * sizeof(int));
     int r_size = 0;
 
-    // while ¬isEmpty(B) do (* A phase: Some queued nodes left *)
     int i_bucket = 0;
     while (i_bucket < MAX_BUCKETS) {
-        // Encontra o menor balde não vazio
         int next_non_empty = -1;
         for (int b = i_bucket; b < MAX_BUCKETS; b++) {
             if (buckets[b] != NULL) {
@@ -182,43 +178,36 @@ int main(int argc, char *argv[]) {
         if (next_non_empty == -1) break;
         i_bucket = next_non_empty;
 
-        r_size = 0; // Reseta o conjunto R para a fase atual
+        r_size = 0;
 
-        // while B[i] != empty do (* New phase *)
         while (buckets[i_bucket] != NULL) {
             BucketNode *curr = buckets[i_bucket];
             int v = curr->vertex;
 
-            // Remove do balde atual e adiciona ao conjunto R
             buckets[i_bucket] = curr->next;
             free(curr);
             in_bucket[v] = -1;
 
-            R[r_size++] = v; // R := R U B[i] (* Remember deleted nodes *)
+            R[r_size++] = v; // R := R U B[i]
 
-            // Req := findRequests(B[i], light) (* Create requests for light edges *)
             Vertice *vert = &g->vertices[v];
             for (int i = 0; i < vert->num_arestas; i++) {
                 int neighbor = vert->arestas[i].destino;
-                int weight = vert->arestas[i].peso;
+                double weight = vert->arestas[i].peso;
 
-                // Arestas leves (weight <= delta)
                 if (weight <= delta) {
                     relax(neighbor, tent[v] + weight, delta);
                 }
             }
         }
 
-        // Req := findRequests(R, heavy) (* Create requests for heavy edges *)
-        // relaxRequests(Req) (* Relaxations will not refill B[i] *)
         for (int idx = 0; idx < r_size; idx++) {
             int v = R[idx];
             Vertice *vert = &g->vertices[v];
             for (int i = 0; i < vert->num_arestas; i++) {
                 int neighbor = vert->arestas[i].destino;
-                int weight = vert->arestas[i].peso;
+                double weight = vert->arestas[i].peso;
 
-                // Arestas pesadas (weight > delta) processadas a partir do conjunto R
                 if (weight > delta) {
                     relax(neighbor, tent[v] + weight, delta);
                 }
@@ -227,21 +216,33 @@ int main(int argc, char *argv[]) {
     }
 
     free(R);
+    clock_gettime(CLOCK_MONOTONIC, &fim_algoritmo);
 
-    printf("\nMenores distancias (Delta-Stepping completo com arestas pesadas):\n");
-    for (int i = 0; i < g->num_vertices; i++) {
+    printf("\nMenores distancias calculadas (Primeiros 15 vertices):\n");
+    for (int i = 0; i < (g->num_vertices < 15 ? g->num_vertices : 15); i++) {
         if (tent[i] == INF)
-            printf("Vertice %d (ID orig %d): INF\n", i, i + 1);
+            printf("Vertice %d: INF\n", i);
         else
-            printf("Vertice %d (ID orig %d): %d\n", i, i + 1, tent[i]);
+            printf("Vertice %d: %.6f\n", i, tent[i]);
     }
 
     liberar_grafo(g);
 
     clock_gettime(CLOCK_MONOTONIC, &fim_total);
+
+    double tempo_leitura = (fim_leitura.tv_sec - inicio_leitura.tv_sec) +
+                           (fim_leitura.tv_nsec - inicio_leitura.tv_nsec) / 1e9;
+
+    double tempo_algoritmo = (fim_algoritmo.tv_sec - inicio_algoritmo.tv_sec) +
+                             (fim_algoritmo.tv_nsec - inicio_algoritmo.tv_nsec) / 1e9;
+
     double tempo_total = (fim_total.tv_sec - inicio_total.tv_sec) +
                          (fim_total.tv_nsec - inicio_total.tv_nsec) / 1e9;
-    printf("\nTempo total de execucao: %.6f segundos\n", tempo_total);
+
+    printf("\n--- METRICAS DE TEMPO (ELAPSED TIME) ---\n");
+    printf("Tempo de leitura do grafo: %.6f segundos\n", tempo_leitura);
+    printf("Tempo de execucao do algoritmo: %.6f segundos\n", tempo_algoritmo);
+    printf("Tempo total de execucao: %.6f segundos\n", tempo_total);
 
     return 0;
 }
