@@ -2,7 +2,7 @@
 NVCC := nvcc
 
 TARGET := delta-stepping
-SRC := delta-stepping.cu
+SRC := delta-stepping-baseline.cu
 
 ARCH ?= sm_120
 
